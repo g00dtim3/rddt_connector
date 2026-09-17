@@ -79,7 +79,7 @@ class BrandwatchConnector:
 
     # -- Authentification --------------------------------------------------
 
-    def _authenticate(self) -> str:
+    def _authenticate(self) -> dict[str, Any]:
         response = self._request(
             "POST",
             "/oauth/token",
@@ -91,16 +91,34 @@ class BrandwatchConnector:
             data={"password": self._password},
             authenticated=False,
         )
-        payload = response.json()
-        token = payload.get("access_token")
-        if not token:
-            raise BrandwatchAPIError("Réponse d'authentification Brandwatch sans access_token.")
-        return token
+        return response.json()
 
     def _token(self) -> str:
         if self._access_token is None:
-            self._access_token = self._authenticate()
+            payload = self._authenticate()
+            token = payload.get("access_token")
+            if not token:
+                raise BrandwatchAPIError("Réponse d'authentification Brandwatch sans access_token.")
+            self._access_token = token
         return self._access_token
+
+    def test_connection(self) -> dict[str, Any]:
+        """Vérifie que l'authentification Brandwatch fonctionne (1 appel API).
+
+        À utiliser pour un contrôle explicite (écran Connexions), pas en
+        automatique à chaque démarrage : ça consomme une requête du quota
+        partagé de 30/10min.
+        """
+        payload = self._authenticate()
+        token = payload.get("access_token")
+        if not token:
+            raise BrandwatchAPIError("Réponse d'authentification Brandwatch sans access_token.")
+        self._access_token = token
+        return {
+            "token_type": payload.get("token_type"),
+            "scope": payload.get("scope"),
+            "expires_in": payload.get("expires_in"),
+        }
 
     # -- HTTP bas niveau (rate limit + retry) --------------------------------
 
