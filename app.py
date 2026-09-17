@@ -7,10 +7,13 @@ Services (`services/`).
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import streamlit as st
 
 from config import get_brandwatch_credentials
 from connectors.brandwatch_connector import BrandwatchAPIError, BrandwatchConnector
+from db.connection import test_connection as test_db_connection
 from repositories.acquisition_configs_repository import AcquisitionConfigsRepository
 from repositories.datasets_repository import DatasetsRepository
 from services.acquisition_service import AcquisitionService
@@ -19,6 +22,8 @@ from services.export_service import ExportService
 from services.volume_service import VolumeService
 
 st.set_page_config(page_title="MVP Reddit — Brandwatch → PostgreSQL", layout="wide")
+
+SCREENS = ["0. Connexions", "1. Sélection", "2. Volume", "3. Acquisition", "4. Export"]
 
 
 @st.cache_resource
@@ -33,12 +38,22 @@ def get_brandwatch_service() -> BrandwatchService:
 def main() -> None:
     st.title("MVP Reddit — Brandwatch → PostgreSQL")
 
-    screen = st.sidebar.radio("Étape", ["1. Sélection", "2. Volume", "3. Acquisition", "4. Export"])
+    screen = st.sidebar.radio("Étape", SCREENS)
 
+    brandwatch_service: BrandwatchService | None = None
+    brandwatch_setup_error: str | None = None
     try:
         brandwatch_service = get_brandwatch_service()
     except RuntimeError as exc:
-        st.error(str(exc))
+        brandwatch_setup_error = str(exc)
+
+    if screen == "0. Connexions":
+        render_connections(brandwatch_service, brandwatch_setup_error)
+        return
+
+    if brandwatch_service is None and screen in {"1. Sélection", "2. Volume", "3. Acquisition"}:
+        st.error(brandwatch_setup_error)
+        st.info("Va à l'écran « 0. Connexions » pour le détail.")
         return
 
     if screen == "1. Sélection":
@@ -49,6 +64,78 @@ def main() -> None:
         render_acquisition(brandwatch_service)
     elif screen == "4. Export":
         render_export()
+
+
+def render_connections(brandwatch_service: BrandwatchService | None, brandwatch_setup_error: str | None) -> None:
+    st.header("0. Connexions — vérifications au démarrage")
+    st.caption(
+        "Vérifie que l'app peut parler à Brandwatch et à la base de données avant "
+        "d'utiliser les autres écrans."
+    )
+
+    if "db_check" not in st.session_state:
+        _run_db_check()
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("Brandwatch")
+        st.caption(
+            "Test manuel uniquement : chaque test consomme 1 appel du quota "
+            "partagé de 30 requêtes / 10 minutes."
+        )
+        if brandwatch_setup_error:
+            st.error(brandwatch_setup_error)
+        else:
+            if st.button("Tester la connexion Brandwatch"):
+                _run_brandwatch_check(brandwatch_service)
+            _render_check_result(st.session_state.get("brandwatch_check"))
+
+    with col2:
+        st.subheader("Base de données (Supabase)")
+        if st.button("Retester la connexion à la base"):
+            _run_db_check()
+        _render_check_result(st.session_state.get("db_check"))
+
+
+def _run_brandwatch_check(brandwatch_service: BrandwatchService) -> None:
+    try:
+        info = brandwatch_service.test_connection()
+        st.session_state["brandwatch_check"] = {
+            "ok": True,
+            "message": f"Authentification réussie (scope : {info.get('scope')}).",
+            "checked_at": datetime.now().strftime("%H:%M:%S"),
+        }
+    except (BrandwatchAPIError, RuntimeError) as exc:
+        st.session_state["brandwatch_check"] = {
+            "ok": False,
+            "message": str(exc),
+            "checked_at": datetime.now().strftime("%H:%M:%S"),
+        }
+
+
+def _run_db_check() -> None:
+    try:
+        info = test_db_connection()
+        st.session_state["db_check"] = {
+            "ok": True,
+            "message": f"Connecté à {info['host']}:{info['port']}/{info['dbname']}.",
+            "checked_at": datetime.now().strftime("%H:%M:%S"),
+        }
+    except Exception as exc:  # connexion DB : erreurs variées (réseau, credentials, driver)
+        st.session_state["db_check"] = {
+            "ok": False,
+            "message": str(exc),
+            "checked_at": datetime.now().strftime("%H:%M:%S"),
+        }
+
+
+def _render_check_result(result: dict | None) -> None:
+    if result is None:
+        st.info("Pas encore testé.")
+        return
+    display = st.success if result["ok"] else st.error
+    display(f"{result['message']} (vérifié à {result['checked_at']})")
 
 
 def render_selection(brandwatch_service: BrandwatchService) -> None:
