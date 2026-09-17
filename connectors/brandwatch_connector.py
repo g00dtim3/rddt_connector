@@ -80,15 +80,19 @@ class BrandwatchConnector:
     # -- Authentification --------------------------------------------------
 
     def _authenticate(self) -> dict[str, Any]:
+        # Les 4 paramètres sont envoyés ensemble en query string (voir
+        # docs/05-brandwatch-api-notes.md) ; `requests` les URL-encode
+        # automatiquement, y compris `password` s'il contient des caractères
+        # spéciaux.
         response = self._request(
             "POST",
             "/oauth/token",
             params={
                 "username": self._username,
+                "password": self._password,
                 "grant_type": "api-password",
                 "client_id": self._client_id,
             },
-            data={"password": self._password},
             authenticated=False,
         )
         return response.json()
