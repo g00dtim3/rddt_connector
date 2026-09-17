@@ -80,14 +80,17 @@ class BrandwatchConnector:
     # -- Authentification --------------------------------------------------
 
     def _authenticate(self) -> dict[str, Any]:
-        # Les 4 paramètres sont envoyés ensemble en query string (voir
-        # docs/05-brandwatch-api-notes.md) ; `requests` les URL-encode
-        # automatiquement, y compris `password` s'il contient des caractères
-        # spéciaux.
+        # Convention standard OAuth2 : les paramètres du token endpoint
+        # partent dans le corps de la requête (application/x-www-form-
+        # urlencoded), pas en query string. Deux essais précédents avec les
+        # paramètres en query string ont échoué avec la même erreur 500
+        # générique de Brandwatch, ce qui suggère que le problème n'est pas
+        # là où ces paramètres sont envoyés (voir docs/06-decisions-et-
+        # risques.md, "Risque : accès API non confirmé").
         response = self._request(
             "POST",
             "/oauth/token",
-            params={
+            data={
                 "username": self._username,
                 "password": self._password,
                 "grant_type": "api-password",
