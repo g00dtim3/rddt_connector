@@ -181,6 +181,17 @@ class BrandwatchConnector:
         payload = response.json()
         return payload if isinstance(payload, list) else payload.get("results", payload)
 
+    # -- Découverte des filtres (pour confirmer le filtre Reddit, voir docs/05) --
+
+    def list_filters(self) -> dict[str, Any]:
+        """GET /filters — liste les champs filtrables (ex. pageType, gender, sentiment)."""
+        return self._request("GET", "/filters").json()
+
+    def list_metrics(self) -> dict[str, Any]:
+        """GET /metrics — liste les filtres à valeurs limitées et leurs valeurs acceptées
+        (ex. les valeurs possibles de pageType, dont celle pour Reddit)."""
+        return self._request("GET", "/metrics").json()
+
     # -- Comptage (non confirmé, voir docs/05) ---------------------------------
 
     def count_mentions(

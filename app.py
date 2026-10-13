@@ -97,6 +97,38 @@ def render_connections(brandwatch_service: BrandwatchService | None, brandwatch_
             _run_db_check()
         _render_check_result(st.session_state.get("db_check"))
 
+    if not brandwatch_setup_error:
+        st.divider()
+        st.subheader("Découverte des filtres Brandwatch")
+        st.caption(
+            "Pour confirmer la valeur exacte de pageType correspondant à Reddit "
+            "(voir docs/05-brandwatch-api-notes.md). Chaque appel consomme aussi "
+            "1 requête du quota."
+        )
+        col3, col4 = st.columns(2)
+        with col3:
+            if st.button("Appeler /filters"):
+                try:
+                    st.session_state["filters_result"] = brandwatch_service.list_filters()
+                except (BrandwatchAPIError, RuntimeError) as exc:
+                    st.session_state["filters_result"] = None
+                    st.error(str(exc))
+            if st.session_state.get("filters_result") is not None:
+                st.json(st.session_state["filters_result"])
+        with col4:
+            if st.button("Appeler /metrics"):
+                try:
+                    st.session_state["metrics_result"] = brandwatch_service.list_metrics()
+                except (BrandwatchAPIError, RuntimeError) as exc:
+                    st.session_state["metrics_result"] = None
+                    st.error(str(exc))
+            if st.session_state.get("metrics_result") is not None:
+                st.json(st.session_state["metrics_result"])
+                st.caption(
+                    "Cherche la clé pageType ci-dessus : la valeur correspondant à "
+                    "Reddit va dans REDDIT_ONLY_FILTER_VALUE (services/brandwatch_service.py)."
+                )
+
 
 def _run_brandwatch_check(brandwatch_service: BrandwatchService) -> None:
     try:

@@ -12,10 +12,17 @@ from connectors.brandwatch_connector import BrandwatchConnector, MentionsPage
 from repositories.bw_projects_repository import BwProjectsRepository
 from repositories.bw_queries_repository import BwQueriesRepository
 
-# Nom exact du paramètre de filtrage "Reddit uniquement" côté API Brandwatch :
-# non confirmé (voir docs/05-brandwatch-api-notes.md, "À confirmer"). Ne pas
-# deviner : renseigner cette constante une fois vérifié, pas avant.
-REDDIT_ONLY_FILTER_PARAM: str | None = None
+# Paramètre de filtrage "page type" confirmé dans la doc Brandwatch "Available
+# Filters" (ex. d'usage officiel : pageType=twitter). Voir docs/05-brandwatch-
+# api-notes.md.
+REDDIT_ONLY_FILTER_PARAM = "pageType"
+
+# Valeur exacte de pageType pour Reddit : pas encore confirmée (le nommage des
+# page types a changé lors de la bascule de flux Reddit du 28/08/2026, voir
+# docs/06-decisions-et-risques.md). Ne pas deviner : la lire dans la réponse
+# réelle de GET /metrics (bouton « Appeler /metrics » de l'écran Connexions)
+# avant de renseigner cette constante.
+REDDIT_ONLY_FILTER_VALUE: str | None = None
 
 
 class BrandwatchService:
@@ -48,16 +55,22 @@ class BrandwatchService:
     def test_connection(self) -> dict[str, Any]:
         return self._connector.test_connection()
 
+    def list_filters(self) -> dict[str, Any]:
+        return self._connector.list_filters()
+
+    def list_metrics(self) -> dict[str, Any]:
+        return self._connector.list_metrics()
+
     def _reddit_only_filter(self) -> dict[str, Any]:
-        if REDDIT_ONLY_FILTER_PARAM is None:
+        if REDDIT_ONLY_FILTER_VALUE is None:
             raise RuntimeError(
-                "Le filtre 'Reddit uniquement' n'est pas encore configurable : le "
-                "nom exact du paramètre Brandwatch n'a pas été confirmé (voir "
-                "docs/05-brandwatch-api-notes.md, section 'À confirmer'). Renseigne "
-                "REDDIT_ONLY_FILTER_PARAM dans services/brandwatch_service.py une "
-                "fois vérifié."
+                "Le filtre 'Reddit uniquement' n'est pas encore configurable : la "
+                "valeur exacte de pageType pour Reddit n'a pas été confirmée. "
+                "Utilise le bouton « Appeler /metrics » (écran Connexions) pour "
+                "lire les valeurs réelles de pageType, puis renseigne "
+                "REDDIT_ONLY_FILTER_VALUE dans services/brandwatch_service.py."
             )
-        return {REDDIT_ONLY_FILTER_PARAM: "reddit"}
+        return {REDDIT_ONLY_FILTER_PARAM: REDDIT_ONLY_FILTER_VALUE}
 
     def count_mentions(self, project_id: int, query_id: int, start_date: str, end_date: str) -> int:
         return self._connector.count_mentions(
