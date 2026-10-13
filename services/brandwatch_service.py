@@ -28,7 +28,12 @@ REDDIT_ONLY_FILTER_VALUE = "reddit"
 # (ex. category/xcategory) — convention observée directement dans cette
 # réponse. "sentiment" n'a pas de variante x* dans cette même réponse, donc
 # inclusion uniquement.
-FILTERABLE_PARAMETERS = {"category", "tag", "language", "domain", "author"}
+#
+# `category` ne retourne que cette catégorie précise ; `parentCategory`
+# retourne cette catégorie ET toutes ses sous-catégories (descente gérée côté
+# Brandwatch, pas besoin de la recalculer nous-mêmes) — les deux existent
+# comme paramètres séparés, confirmés dans la même réponse GET /filters.
+FILTERABLE_PARAMETERS = {"category", "parentCategory", "tag", "language", "domain", "author"}
 FILTERABLE_PARAMETERS_INCLUDE_ONLY = {"sentiment"}
 
 

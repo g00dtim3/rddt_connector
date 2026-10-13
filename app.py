@@ -352,17 +352,24 @@ def _render_filter_builder(brandwatch_service: BrandwatchService, project_id: in
         categories = st.session_state.get(f"categories_{project_id}", [])
         if categories:
             category_labels = dict(_flatten_tree(categories))
-            cols = st.columns([3, 1])
-            selected_category = cols[0].selectbox(
+            selected_category = st.selectbox(
                 "Catégorie", options=[None] + list(category_labels),
                 format_func=lambda cid: "—" if cid is None else category_labels[cid], key="filter_select_category",
+            )
+            cols = st.columns(2)
+            category_scope = cols[0].radio(
+                "Portée", options=["category", "parentCategory"], key="filter_scope_category",
+                format_func=lambda s: "Cette catégorie uniquement" if s == "category" else "Cette catégorie + ses sous-catégories",
+                horizontal=True,
             )
             category_mode = cols[1].radio(
                 "Mode", options=["include", "exclude"], key="filter_mode_category",
                 format_func=lambda m: "Inclure" if m == "include" else "Exclure", horizontal=True,
             )
             if selected_category is not None:
-                filters.append({"parameter": "category", "mode": category_mode, "native_value": str(selected_category)})
+                filters.append(
+                    {"parameter": category_scope, "mode": category_mode, "native_value": str(selected_category)}
+                )
         else:
             st.caption("Clique sur « Charger les catégories » pour choisir dans une liste (pas de nom sans ça).")
 
