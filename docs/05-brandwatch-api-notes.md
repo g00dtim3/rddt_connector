@@ -98,8 +98,11 @@ existant du compte.
 
 ## À confirmer avant la phase 0 (POC)
 
-- [ ] Nom exact du endpoint et des paramètres pour le **Count** (nombre de mentions sans
-      les récupérer entièrement).
+- [ ] Nom exact du endpoint et des paramètres pour le **Count** — implémenté le
+      13/10/2026 d'après la doc publique Brandwatch ("Total Mentions" :
+      `GET /projects/{projectId}/data/mentions/count`), **mais pas encore vérifié
+      par un appel réel** (voir `connectors/brandwatch_connector.py`). À cocher
+      une fois testé sur l'écran Volume.
 - [x] Nom exact du paramètre pour filtrer sur **Reddit uniquement** — confirmé le
       13/10/2026 : `pageType=reddit`.
 - [ ] Confirmer quel type d'accès API est activé sur le compte (cf. `docs/06-decisions-

@@ -5,12 +5,9 @@ séparation des couches : UI -> Service -> Connector -> API). Ne contient aucune
 logique métier (pas de dédup, pas de décision MATCH/WARNING/MISMATCH) : ça
 reste dans services/.
 
-Deux points sont volontairement laissés en `NotImplementedError` /
-paramètre optionnel plutôt que devinés, conformément à CLAUDE.md et à la
-section "À confirmer" de docs/05-brandwatch-api-notes.md :
-- le nom exact de l'endpoint de comptage (`count_mentions`) ;
-- le nom exact du paramètre "Reddit uniquement" (laissé au niveau du Service
-  appelant, via `extra_params`, plutôt que codé en dur ici).
+Le filtre "Reddit uniquement" (paramètre `pageType`) est géré par le Service
+appelant, via `extra_params`, plutôt que codé en dur ici — voir
+services/brandwatch_service.py.
 """
 
 from __future__ import annotations
@@ -192,7 +189,7 @@ class BrandwatchConnector:
         (ex. les valeurs possibles de pageType, dont celle pour Reddit)."""
         return self._request("GET", "/metrics").json()
 
-    # -- Comptage (non confirmé, voir docs/05) ---------------------------------
+    # -- Comptage ---------------------------------------------------------------
 
     def count_mentions(
         self,
@@ -202,12 +199,19 @@ class BrandwatchConnector:
         end_date: str,
         extra_params: dict[str, Any] | None = None,
     ) -> int:
-        raise NotImplementedError(
-            "Endpoint de comptage Brandwatch non confirmé (voir docs/05-brandwatch-"
-            "api-notes.md, section 'À confirmer'). À implémenter une fois le nom "
-            "exact de l'endpoint et de ses paramètres vérifié dans la doc "
-            "'Available Filters' / par un appel réel."
-        )
+        """GET /projects/{projectId}/data/mentions/count — nombre de mentions sans
+        les récupérer entièrement. Endpoint trouvé dans la doc publique Brandwatch
+        ("Total Mentions") ; à vérifier contre un vrai appel lors du premier test
+        (voir docs/05-brandwatch-api-notes.md)."""
+        params = {
+            "queryId": query_id,
+            "startDate": start_date,
+            "endDate": end_date,
+            **(extra_params or {}),
+        }
+        response = self._request("GET", f"/projects/{project_id}/data/mentions/count", params=params)
+        payload = response.json()
+        return payload["mentionsCount"]
 
     # -- Mentions (pagination par cursor au-delà de 10 000 résultats) ----------
 
