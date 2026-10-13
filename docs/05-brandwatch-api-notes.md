@@ -84,8 +84,10 @@ encore été extrait dans cette session. **À vérifier avant la phase 0** (voir
 ## Filtres disponibles
 
 La doc référence une section "Available Filters" (langues, localisation, objets/logos,
-exclusions). Le nom exact du paramètre permettant de restreindre à la source Reddit
-uniquement n'a pas encore été confirmé.
+exclusions). **Confirmé le 13/10/2026** : le paramètre pour restreindre à une source
+donnée est `pageType`, et la valeur pour Reddit est `reddit` — vérifié via un appel réel
+à `GET /filters` et `GET /metrics` (voir `connectors/brandwatch_connector.py` et
+`services/brandwatch_service.py`).
 
 ## Analysis API — hors périmètre
 
@@ -98,8 +100,8 @@ existant du compte.
 
 - [ ] Nom exact du endpoint et des paramètres pour le **Count** (nombre de mentions sans
       les récupérer entièrement).
-- [ ] Nom exact du paramètre pour filtrer sur **Reddit uniquement** (probablement un
-      filtre de type "page type" / "content type" — à vérifier dans "Available Filters").
+- [x] Nom exact du paramètre pour filtrer sur **Reddit uniquement** — confirmé le
+      13/10/2026 : `pageType=reddit`.
 - [ ] Confirmer quel type d'accès API est activé sur le compte (cf. `docs/06-decisions-
       et-risques.md`, l'utilisateur ne le savait pas au 17/09/2026) — un simple test
       d'obtention de token suffit à le vérifier.

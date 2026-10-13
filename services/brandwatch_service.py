@@ -17,12 +17,10 @@ from repositories.bw_queries_repository import BwQueriesRepository
 # api-notes.md.
 REDDIT_ONLY_FILTER_PARAM = "pageType"
 
-# Valeur exacte de pageType pour Reddit : pas encore confirmée (le nommage des
-# page types a changé lors de la bascule de flux Reddit du 28/08/2026, voir
-# docs/06-decisions-et-risques.md). Ne pas deviner : la lire dans la réponse
-# réelle de GET /metrics (bouton « Appeler /metrics » de l'écran Connexions)
-# avant de renseigner cette constante.
-REDDIT_ONLY_FILTER_VALUE: str | None = None
+# Valeur confirmée le 13/10/2026 via un vrai appel GET /metrics (bouton
+# « Appeler /metrics » de l'écran Connexions) : {"id": "reddit", "name":
+# "Reddit", "type": "STANDARD", "group": "PRE_CONFIGURED", "canonical": true}.
+REDDIT_ONLY_FILTER_VALUE = "reddit"
 
 
 class BrandwatchService:
