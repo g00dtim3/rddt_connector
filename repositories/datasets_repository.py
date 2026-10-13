@@ -53,15 +53,22 @@ class DatasetMentionsRepository:
     def link_batch(self, dataset_id: int, mention_ids: list[int]) -> None:
         if not mention_ids:
             return
+        # Un seul INSERT multi-lignes plutôt qu'un executemany ligne par ligne
+        # (voir RedditMentionsRepository.upsert_batch pour la même raison).
+        values_clause = ", ".join(f"(:dataset_id, :mention_id_{i})" for i in range(len(mention_ids)))
+        params: dict[str, Any] = {"dataset_id": dataset_id}
+        for i, mention_id in enumerate(mention_ids):
+            params[f"mention_id_{i}"] = mention_id
+
         with get_connection() as conn:
             with conn.begin():
                 conn.execute(
                     text(
-                        """
+                        f"""
                         INSERT INTO dataset_mentions (dataset_id, mention_id)
-                        VALUES (:dataset_id, :mention_id)
+                        VALUES {values_clause}
                         ON CONFLICT DO NOTHING
                         """
                     ),
-                    [{"dataset_id": dataset_id, "mention_id": mention_id} for mention_id in mention_ids],
+                    params,
                 )
