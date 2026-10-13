@@ -20,17 +20,19 @@ SOURCE = "reddit"
 def _map_mention(raw: dict[str, Any]) -> dict[str, Any]:
     """Traduit une mention brute Brandwatch vers les colonnes de reddit_mentions.
 
-    Champs basés sur le format standard de l'API Mentions Brandwatch (id,
-    date, fullText, author, url, language). À vérifier contre une vraie
-    réponse lors de la Phase 0 (POC) : voir docs/05-brandwatch-api-notes.md.
-    Le contenu lui-même n'est jamais transformé — `raw_payload` garde
-    l'objet complet tel que reçu.
+    Champs confirmés le 13/10/2026 sur une vraie réponse (voir docs/05-
+    brandwatch-api-notes.md) : `id` n'existe pas dans la réponse réelle ("fullText"
+    non plus) — l'identifiant natif Reddit est `guid` (ex. "p731p3y", qui
+    correspond à la fin de l'URL du post/commentaire), et le texte de la
+    mention est dans `snippet` (`title` est le titre du post *parent*, pas le
+    texte de la mention elle-même pour une réponse). Le contenu lui-même
+    n'est jamais transformé — `raw_payload` garde l'objet complet tel que reçu.
     """
     return {
         "source": SOURCE,
-        "source_native_id": str(raw.get("id")),
+        "source_native_id": str(raw.get("guid")),
         "published_at": raw.get("date"),
-        "full_text": raw.get("fullText"),
+        "full_text": raw.get("snippet"),
         "author": raw.get("author"),
         "url": raw.get("url"),
         "language": raw.get("language"),
