@@ -7,7 +7,9 @@ Services (`services/`).
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
+from typing import Callable
 
 import streamlit as st
 
@@ -21,7 +23,22 @@ from services.brandwatch_service import BrandwatchService
 from services.export_service import ExportService
 from services.volume_service import VolumeService
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
 st.set_page_config(page_title="MVP Reddit — Brandwatch → PostgreSQL", layout="wide")
+
+
+def _make_event_logger(placeholder) -> Callable[[str], None]:
+    """Journal en direct (mode verbose) : accumule les événements et les affiche
+    dans `placeholder` au fur et à mesure, même pendant une pause/retry qui
+    bloque le reste du script (Streamlit est mono-thread par session)."""
+    lines: list[str] = []
+
+    def _log(message: str) -> None:
+        lines.append(f"{datetime.now().strftime('%H:%M:%S')} — {message}")
+        placeholder.code("\n".join(lines[-40:]))
+
+    return _log
 
 SCREENS = ["0. Connexions", "1. Sélection", "2. Volume", "3. Acquisition", "4. Export"]
 
@@ -88,7 +105,12 @@ def render_connections(brandwatch_service: BrandwatchService | None, brandwatch_
             st.error(brandwatch_setup_error)
         else:
             if st.button("Tester la connexion Brandwatch"):
-                _run_brandwatch_check(brandwatch_service)
+                log_sink = _make_event_logger(st.empty())
+                brandwatch_service.set_event_sink(log_sink)
+                try:
+                    _run_brandwatch_check(brandwatch_service)
+                finally:
+                    brandwatch_service.set_event_sink(None)
             _render_check_result(st.session_state.get("brandwatch_check"))
 
     with col2:
@@ -229,31 +251,78 @@ def render_selection(brandwatch_service: BrandwatchService) -> None:
 
 def render_volume(brandwatch_service: BrandwatchService) -> None:
     st.header("2. Volume — comparaison UI vs API")
+    st.caption(
+        "Ce contrôle est informatif : un MISMATCH n'empêche pas de passer à "
+        "l'étape 3. Acquisition si tu juges que c'est pertinent quand même."
+    )
 
     config_id = st.session_state.get("config_id")
     if not config_id:
         st.info("Complète d'abord l'étape 1. Sélection.")
         return
 
+    volume_service = VolumeService()
+    effective_end_date = volume_service.effective_comparison_end_date(st.session_state["config_end_date"])
+
     st.write(f"Config sélectionnée : #{config_id}")
-    ui_volume = st.number_input("Volume affiché dans Brandwatch Consumer Research (saisie manuelle)", min_value=0, step=1)
+    if effective_end_date != st.session_state["config_end_date"]:
+        st.caption(
+            f"La comparaison portera sur {st.session_state['config_start_date']} → "
+            f"{effective_end_date} (fenêtre des 48 dernières heures exclue), pas sur "
+            f"la date de fin complète de la sélection ({st.session_state['config_end_date']})."
+        )
+
+    ui_volume = st.number_input(
+        f"Volume affiché dans Brandwatch Consumer Research pour cette même période "
+        f"({st.session_state['config_start_date']} → {effective_end_date})",
+        min_value=0,
+        step=1,
+    )
+    diagnose = st.checkbox(
+        "Comparer aussi sans le filtre pageType=reddit (diagnostic en cas d'écart)"
+    )
 
     if st.button("Vérifier le volume API"):
+        log_sink = _make_event_logger(st.empty())
+        brandwatch_service.set_event_sink(log_sink)
         try:
             api_volume = brandwatch_service.count_mentions(
                 st.session_state["config_project_id"],
                 st.session_state["config_query_id"],
                 st.session_state["config_start_date"],
-                st.session_state["config_end_date"],
+                effective_end_date,
             )
+            unfiltered_volume = None
+            if diagnose:
+                unfiltered_volume = brandwatch_service.count_mentions_unfiltered(
+                    st.session_state["config_project_id"],
+                    st.session_state["config_query_id"],
+                    st.session_state["config_start_date"],
+                    effective_end_date,
+                )
         except NotImplementedError as exc:
             st.warning(str(exc))
             return
         except (BrandwatchAPIError, RuntimeError) as exc:
             st.error(str(exc))
             return
+        finally:
+            brandwatch_service.set_event_sink(None)
 
-        result = VolumeService().compare(config_id, int(ui_volume), api_volume)
+        st.write(f"Volume UI : **{int(ui_volume)}** — Volume API avec pageType=reddit : **{api_volume}**")
+        if unfiltered_volume is not None:
+            st.write(
+                f"Volume API sans filtre (diagnostic) : **{unfiltered_volume}** "
+                f"(écart avec le filtré : {unfiltered_volume - api_volume})"
+            )
+            if unfiltered_volume != api_volume:
+                st.info(
+                    "Le filtre pageType=reddit exclut des mentions de cette Query : "
+                    "possible tagging incomplet depuis la bascule de flux Reddit du "
+                    "28/08/2026 (voir docs/06-decisions-et-risques.md)."
+                )
+
+        result = volume_service.compare(config_id, int(ui_volume), api_volume)
         status_display = {"MATCH": st.success, "MISMATCH": st.error}[result["status"]]
         status_display(
             f"Statut : {result['status']} — écart {result['difference']} "
@@ -280,6 +349,9 @@ def render_acquisition(brandwatch_service: BrandwatchService) -> None:
 
         acquisition_service = AcquisitionService(brandwatch_service)
         progress_placeholder = st.empty()
+        st.caption("Mode verbose — détail des appels Brandwatch en direct :")
+        log_sink = _make_event_logger(st.empty())
+        brandwatch_service.set_event_sink(log_sink)
         try:
             for progress in acquisition_service.run(
                 config_id=config_id,
@@ -296,6 +368,8 @@ def render_acquisition(brandwatch_service: BrandwatchService) -> None:
         except (BrandwatchAPIError, RuntimeError) as exc:
             st.error(f"Acquisition interrompue : {exc}")
             return
+        finally:
+            brandwatch_service.set_event_sink(None)
 
         DatasetsRepository().update_status(dataset_id, "COMPLETE")
         st.success(f"Acquisition terminée. Dataset #{dataset_id} prêt pour l'export.")

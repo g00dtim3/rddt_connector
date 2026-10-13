@@ -8,17 +8,29 @@ récentes (voir docs/06-decisions-et-risques.md).
 
 from __future__ import annotations
 
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from repositories.volume_checks_repository import VolumeChecksRepository
 
-RECENT_WINDOW_LABEL = "48h"
+RECENT_WINDOW_HOURS = 48
+RECENT_WINDOW_LABEL = f"{RECENT_WINDOW_HOURS}h"
 WARNING_THRESHOLD_PCT = 1.0
 
 
 class VolumeService:
     def __init__(self, volume_checks_repo: VolumeChecksRepository | None = None):
         self._repo = volume_checks_repo or VolumeChecksRepository()
+
+    def effective_comparison_end_date(self, end_date: str) -> str:
+        """Ramène la date de fin à (maintenant - 48h) si besoin, pour que la
+        comparaison UI vs API n'inclue jamais une période où le contenu Reddit
+        récent n'a pas encore fini d'arriver côté Brandwatch (voir
+        docs/01-spec-fonctionnelle.md §5). Ne modifie jamais la config stockée,
+        seulement la requête de comptage utilisée pour CE contrôle."""
+        requested_end = date.fromisoformat(end_date)
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=RECENT_WINDOW_HOURS)).date()
+        return min(requested_end, cutoff).isoformat()
 
     def compare(self, config_id: int, ui_volume: int, api_volume: int) -> dict[str, Any]:
         difference = api_volume - ui_volume

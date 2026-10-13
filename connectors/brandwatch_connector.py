@@ -12,12 +12,15 @@ services/brandwatch_service.py.
 
 from __future__ import annotations
 
+import logging
 import time
 from collections import deque
 from dataclasses import dataclass
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 import requests
+
+logger = logging.getLogger(__name__)
 
 RATE_LIMIT_MAX_REQUESTS = 30
 RATE_LIMIT_WINDOW_SECONDS = 600
@@ -45,7 +48,8 @@ class _RateLimiter:
         self._window_seconds = window_seconds
         self._timestamps: deque[float] = deque()
 
-    def wait_if_needed(self) -> None:
+    def wait_if_needed(self) -> float:
+        """Patiente si besoin et retourne le nombre de secondes attendues (0.0 sinon)."""
         now = time.monotonic()
         while self._timestamps and now - self._timestamps[0] >= self._window_seconds:
             self._timestamps.popleft()
@@ -53,6 +57,8 @@ class _RateLimiter:
             sleep_for = self._window_seconds - (now - self._timestamps[0])
             if sleep_for > 0:
                 time.sleep(sleep_for)
+                return sleep_for
+        return 0.0
 
     def record_call(self) -> None:
         self._timestamps.append(time.monotonic())
@@ -73,6 +79,18 @@ class BrandwatchConnector:
         self._base_url = base_url.rstrip("/")
         self._rate_limiter = _RateLimiter()
         self._access_token: str | None = None
+        self._on_event: Callable[[str], None] | None = None
+
+    def set_event_sink(self, callback: Callable[[str], None] | None) -> None:
+        """Branche (ou débranche avec None) un callback appelé à chaque étape d'un
+        appel HTTP (tentative, pause rate limit, retry, résultat) — mode verbose
+        pour l'UI, en plus du logging standard."""
+        self._on_event = callback
+
+    def _emit(self, message: str) -> None:
+        logger.info(message)
+        if self._on_event:
+            self._on_event(message)
 
     # -- Authentification --------------------------------------------------
 
@@ -140,26 +158,41 @@ class BrandwatchConnector:
         backoff = INITIAL_BACKOFF_SECONDS
         last_error: Exception | None = None
         for attempt in range(1, MAX_RETRIES + 1):
-            self._rate_limiter.wait_if_needed()
+            sleep_for = self._rate_limiter.wait_if_needed()
+            if sleep_for > 0:
+                self._emit(f"Quota Brandwatch : pause de {sleep_for:.1f}s avant {method} {path}")
+
+            self._emit(f"{method} {path} (tentative {attempt}/{MAX_RETRIES})")
+            request_start = time.monotonic()
             try:
                 response = requests.request(method, url, params=params, data=data, headers=headers, timeout=30)
                 self._rate_limiter.record_call()
             except requests.RequestException as exc:
+                elapsed = time.monotonic() - request_start
                 last_error = exc
                 if attempt == MAX_RETRIES:
+                    self._emit(f"Échec réseau définitif sur {method} {path} après {elapsed:.1f}s : {exc}")
                     raise BrandwatchAPIError(f"Échec réseau après {MAX_RETRIES} tentatives : {exc}") from exc
+                self._emit(f"Erreur réseau sur {method} {path} ({exc}), nouvel essai dans {backoff}s")
                 time.sleep(backoff)
                 backoff *= 2
                 continue
 
+            elapsed = time.monotonic() - request_start
+
             if response.status_code < 400:
+                self._emit(f"{method} {path} -> {response.status_code} en {elapsed:.1f}s")
                 return response
 
             if response.status_code in RETRYABLE_STATUS_CODES and attempt < MAX_RETRIES:
+                self._emit(
+                    f"{method} {path} -> {response.status_code} en {elapsed:.1f}s, nouvel essai dans {backoff}s"
+                )
                 time.sleep(backoff)
                 backoff *= 2
                 continue
 
+            self._emit(f"{method} {path} -> {response.status_code} (échec définitif)")
             raise BrandwatchAPIError(
                 f"Brandwatch a répondu {response.status_code} sur {method} {path} : {response.text[:500]}"
             )
