@@ -275,6 +275,8 @@ def render_selection(brandwatch_service: BrandwatchService) -> None:
         "dernières 48h — le contenu Reddit récent met du temps à arriver côté Brandwatch."
     )
 
+    extra_filters = _render_filter_builder()
+
     if st.button("Valider la sélection"):
         if start_date > end_date:
             st.error("La date de début doit précéder la date de fin.")
@@ -292,15 +294,58 @@ def render_selection(brandwatch_service: BrandwatchService) -> None:
             start_date=start_date,
             end_date=end_date,
             acquisition_project_id=acquisition_project_id,
+            filters=extra_filters,
         )
         st.session_state["config_id"] = config_id
         st.session_state["config_project_id"] = project_id
         st.session_state["config_query_id"] = query_id
         st.session_state["config_start_date"] = str(start_date)
         st.session_state["config_end_date"] = str(end_date)
+        st.session_state["config_filters"] = extra_filters
         st.session_state["acquisition_project_id"] = acquisition_project_id
         st.session_state.pop("dataset_id", None)
         st.success(f"Sélection enregistrée (config #{config_id}). Passe à l'étape 2. Volume.")
+
+
+def _render_filter_builder() -> list[dict[str, str]]:
+    """Selection Builder v1.1+ (voir docs/01-fonctionnelle.md §3) : catégorie,
+    tag, langue, domaine, auteur, sentiment — en plus du filtre Reddit déjà
+    systématique. Retourne la liste à stocker dans acquisition_configs.filters."""
+    filters: list[dict[str, str]] = []
+    with st.expander("Filtres supplémentaires (optionnel)"):
+        st.caption(
+            "Pour plusieurs valeurs sur un même filtre, essaie une liste séparée "
+            "par des virgules — ce format n'est pas garanti par Brandwatch pour "
+            "tous les filtres, à vérifier au cas par cas."
+        )
+
+        def _include_exclude_field(label: str, parameter: str, help_text: str | None = None) -> None:
+            cols = st.columns([3, 1])
+            value = cols[0].text_input(label, key=f"filter_value_{parameter}", help=help_text)
+            mode = cols[1].radio(
+                "Mode", options=["include", "exclude"], key=f"filter_mode_{parameter}",
+                format_func=lambda m: "Inclure" if m == "include" else "Exclure", horizontal=True,
+            )
+            if value.strip():
+                filters.append({"parameter": parameter, "mode": mode, "native_value": value.strip()})
+
+        _include_exclude_field(
+            "Catégorie (ID numérique Brandwatch)", "category",
+            help_text="ID propre au Project (ex. 29207363), pas de nom : visible dans Brandwatch ou dans "
+            "un raw_payload déjà acquis (champ categoryDetails).",
+        )
+        _include_exclude_field("Tag", "tag")
+        _include_exclude_field("Langue (code ISO, ex. fr)", "language")
+        _include_exclude_field("Domaine (ex. reddit.com)", "domain")
+        _include_exclude_field("Auteur (pseudo Reddit)", "author")
+
+        sentiment_values = st.multiselect(
+            "Sentiment (inclusion uniquement)", options=["positive", "negative", "neutral"]
+        )
+        if sentiment_values:
+            filters.append({"parameter": "sentiment", "mode": "include", "native_value": ",".join(sentiment_values)})
+
+    return filters
 
 
 def render_volume(brandwatch_service: BrandwatchService) -> None:
@@ -345,6 +390,7 @@ def render_volume(brandwatch_service: BrandwatchService) -> None:
                 st.session_state["config_query_id"],
                 st.session_state["config_start_date"],
                 effective_end_date,
+                extra_filters=st.session_state.get("config_filters", []),
             )
             unfiltered_volume = None
             if diagnose:
@@ -416,6 +462,7 @@ def render_acquisition(brandwatch_service: BrandwatchService) -> None:
                 start_date=st.session_state["config_start_date"],
                 end_date=st.session_state["config_end_date"],
                 dataset_id=dataset_id,
+                extra_filters=st.session_state.get("config_filters", []),
                 on_event=log_sink,
             ):
                 progress_placeholder.write(
@@ -528,6 +575,7 @@ def _refresh_dataset(brandwatch_service: BrandwatchService, row: dict) -> None:
             start_date=str(config["start_date"]),
             end_date=str(config["end_date"]),
             dataset_id=row["dataset_id"],
+            extra_filters=config.get("filters") or [],
             on_event=log_sink,
         ):
             progress_placeholder.write(
@@ -560,6 +608,7 @@ def _extend_dataset(brandwatch_service: BrandwatchService, row: dict, new_end_da
         start_date=extension_start,
         end_date=new_end_date,
         acquisition_project_id=row["acquisition_project_id"],
+        filters=config.get("filters") or [],
     )
 
     acquisition_service = AcquisitionService(brandwatch_service)
@@ -574,6 +623,7 @@ def _extend_dataset(brandwatch_service: BrandwatchService, row: dict, new_end_da
             start_date=str(extension_start),
             end_date=str(new_end_date),
             dataset_id=row["dataset_id"],
+            extra_filters=config.get("filters") or [],
             on_event=log_sink,
         ):
             progress_placeholder.write(

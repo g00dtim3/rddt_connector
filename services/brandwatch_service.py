@@ -22,6 +22,32 @@ REDDIT_ONLY_FILTER_PARAM = "pageType"
 # "Reddit", "type": "STANDARD", "group": "PRE_CONFIGURED", "canonical": true}.
 REDDIT_ONLY_FILTER_VALUE = "reddit"
 
+# Selection Builder (v1.1+, voir docs/01-spec-fonctionnelle.md §3) : noms de
+# paramètres confirmés le 13/10/2026 dans une vraie réponse GET /filters (pas
+# devinés). Pour chacun, la version "exclure" est le même nom préfixé de "x"
+# (ex. category/xcategory) — convention observée directement dans cette
+# réponse. "sentiment" n'a pas de variante x* dans cette même réponse, donc
+# inclusion uniquement.
+FILTERABLE_PARAMETERS = {"category", "tag", "language", "domain", "author"}
+FILTERABLE_PARAMETERS_INCLUDE_ONLY = {"sentiment"}
+
+
+def build_filter_params(filters: list[dict[str, Any]]) -> dict[str, Any]:
+    """Traduit la liste de filtres de la Selection Builder (telle que stockée
+    dans acquisition_configs.filters) en paramètres de requête Brandwatch."""
+    params: dict[str, Any] = {}
+    for f in filters:
+        parameter = f["parameter"]
+        mode = f.get("mode", "include")
+        value = f.get("native_value")
+        if not value:
+            continue
+        if parameter in FILTERABLE_PARAMETERS_INCLUDE_ONLY:
+            params[parameter] = value
+        elif parameter in FILTERABLE_PARAMETERS:
+            params[parameter if mode == "include" else f"x{parameter}"] = value
+    return params
+
 
 class BrandwatchService:
     def __init__(
@@ -75,10 +101,16 @@ class BrandwatchService:
             )
         return {REDDIT_ONLY_FILTER_PARAM: REDDIT_ONLY_FILTER_VALUE}
 
-    def count_mentions(self, project_id: int, query_id: int, start_date: str, end_date: str) -> int:
-        return self._connector.count_mentions(
-            project_id, query_id, start_date, end_date, extra_params=self._reddit_only_filter()
-        )
+    def count_mentions(
+        self,
+        project_id: int,
+        query_id: int,
+        start_date: str,
+        end_date: str,
+        extra_filters: list[dict[str, Any]] | None = None,
+    ) -> int:
+        params = {**self._reddit_only_filter(), **build_filter_params(extra_filters or [])}
+        return self._connector.count_mentions(project_id, query_id, start_date, end_date, extra_params=params)
 
     def count_mentions_unfiltered(self, project_id: int, query_id: int, start_date: str, end_date: str) -> int:
         """Comptage SANS le filtre pageType=reddit — sert uniquement de diagnostic :
@@ -93,13 +125,15 @@ class BrandwatchService:
         query_id: int,
         start_date: str,
         end_date: str,
+        extra_filters: list[dict[str, Any]] | None = None,
         resume_cursor: str | None = None,
     ) -> Iterator[MentionsPage]:
+        params = {**self._reddit_only_filter(), **build_filter_params(extra_filters or [])}
         return self._connector.iter_mentions(
             project_id,
             query_id,
             start_date,
             end_date,
-            extra_params=self._reddit_only_filter(),
+            extra_params=params,
             resume_cursor=resume_cursor,
         )
