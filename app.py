@@ -360,6 +360,7 @@ def render_acquisition(brandwatch_service: BrandwatchService) -> None:
                 start_date=st.session_state["config_start_date"],
                 end_date=st.session_state["config_end_date"],
                 dataset_id=dataset_id,
+                on_event=log_sink,
             ):
                 progress_placeholder.write(
                     f"Reçues : {progress['received']} — nouvelles : {progress['inserted']} — "
