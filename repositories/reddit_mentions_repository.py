@@ -13,6 +13,7 @@ from typing import Any
 from sqlalchemy import text
 
 from db.connection import get_connection
+from repositories._chunking import chunked
 
 
 class RedditMentionsRepository:
@@ -27,26 +28,6 @@ class RedditMentionsRepository:
         source = mentions[0]["source"]
         native_ids = [m["source_native_id"] for m in mentions]
 
-        # Un seul aller-retour réseau pour toute la page (jusqu'à pageSize
-        # mentions), plutôt que l'executemany par défaut de psycopg2/SQLAlchemy
-        # qui envoie une requête par ligne — beaucoup trop lent avec une base
-        # distante dès que la page contient des centaines/milliers de mentions.
-        values_clause = ", ".join(
-            f"(:source_{i}, :native_id_{i}, :published_at_{i}, :full_text_{i}, "
-            f":author_{i}, :url_{i}, :language_{i}, :raw_payload_{i})"
-            for i in range(len(mentions))
-        )
-        params: dict[str, Any] = {}
-        for i, m in enumerate(mentions):
-            params[f"source_{i}"] = m["source"]
-            params[f"native_id_{i}"] = m["source_native_id"]
-            params[f"published_at_{i}"] = m.get("published_at")
-            params[f"full_text_{i}"] = m.get("full_text")
-            params[f"author_{i}"] = m.get("author")
-            params[f"url_{i}"] = m.get("url")
-            params[f"language_{i}"] = m.get("language")
-            params[f"raw_payload_{i}"] = json.dumps(m["raw_payload"])
-
         with get_connection() as conn:
             with conn.begin():
                 existing_rows = conn.execute(
@@ -58,17 +39,39 @@ class RedditMentionsRepository:
                 ).all()
                 existing_ids = {row[0] for row in existing_rows}
 
-                conn.execute(
-                    text(
-                        f"""
-                        INSERT INTO reddit_mentions
-                            (source, source_native_id, published_at, full_text, author, url, language, raw_payload)
-                        VALUES {values_clause}
-                        ON CONFLICT (source, source_native_id) DO UPDATE SET last_seen_at = now()
-                        """
-                    ),
-                    params,
-                )
+                # Par blocs plutôt qu'en une seule requête pour toute la page :
+                # une page peut contenir jusqu'à 5000 mentions, et un INSERT
+                # multi-lignes aussi gros dépasse le délai maximum par requête
+                # côté Supabase (psycopg2.errors.QueryCanceled). Reste un seul
+                # aller-retour réseau par bloc, pas par ligne (voir _chunking.py).
+                for chunk in chunked(mentions):
+                    values_clause = ", ".join(
+                        f"(:source_{i}, :native_id_{i}, :published_at_{i}, :full_text_{i}, "
+                        f":author_{i}, :url_{i}, :language_{i}, :raw_payload_{i})"
+                        for i in range(len(chunk))
+                    )
+                    params: dict[str, Any] = {}
+                    for i, m in enumerate(chunk):
+                        params[f"source_{i}"] = m["source"]
+                        params[f"native_id_{i}"] = m["source_native_id"]
+                        params[f"published_at_{i}"] = m.get("published_at")
+                        params[f"full_text_{i}"] = m.get("full_text")
+                        params[f"author_{i}"] = m.get("author")
+                        params[f"url_{i}"] = m.get("url")
+                        params[f"language_{i}"] = m.get("language")
+                        params[f"raw_payload_{i}"] = json.dumps(m["raw_payload"])
+
+                    conn.execute(
+                        text(
+                            f"""
+                            INSERT INTO reddit_mentions
+                                (source, source_native_id, published_at, full_text, author, url, language, raw_payload)
+                            VALUES {values_clause}
+                            ON CONFLICT (source, source_native_id) DO UPDATE SET last_seen_at = now()
+                            """
+                        ),
+                        params,
+                    )
 
         inserted = len(native_ids) - len(existing_ids)
         return inserted, len(existing_ids)
