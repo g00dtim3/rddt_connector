@@ -211,6 +211,20 @@ class BrandwatchConnector:
         payload = response.json()
         return payload if isinstance(payload, list) else payload.get("results", payload)
 
+    def list_categories(self, project_id: int) -> list[dict[str, Any]]:
+        """GET /projects/{projectId}/rulecategories — catégories du Project ;
+        le filtre `category` attend leur ID, jamais un nom (voir docs/05)."""
+        response = self._request("GET", f"/projects/{project_id}/rulecategories")
+        payload = response.json()
+        return payload if isinstance(payload, list) else payload.get("results", payload)
+
+    def list_tags(self, project_id: int) -> list[dict[str, Any]]:
+        """GET /projects/{projectId}/ruletags — tags du Project ; le filtre
+        `tag` attend leur ID, jamais le texte du tag (voir docs/05)."""
+        response = self._request("GET", f"/projects/{project_id}/ruletags")
+        payload = response.json()
+        return payload if isinstance(payload, list) else payload.get("results", payload)
+
     # -- Découverte des filtres (pour confirmer le filtre Reddit, voir docs/05) --
 
     def list_filters(self) -> dict[str, Any]:

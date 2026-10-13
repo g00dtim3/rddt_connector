@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date, datetime, timedelta
-from typing import Callable
+from typing import Any, Callable
 
 import streamlit as st
 
@@ -275,7 +275,7 @@ def render_selection(brandwatch_service: BrandwatchService) -> None:
         "dernières 48h — le contenu Reddit récent met du temps à arriver côté Brandwatch."
     )
 
-    extra_filters = _render_filter_builder()
+    extra_filters = _render_filter_builder(brandwatch_service, project_id)
 
     if st.button("Valider la sélection"):
         if start_date > end_date:
@@ -307,21 +307,80 @@ def render_selection(brandwatch_service: BrandwatchService) -> None:
         st.success(f"Sélection enregistrée (config #{config_id}). Passe à l'étape 2. Volume.")
 
 
-def _render_filter_builder() -> list[dict[str, str]]:
+def _label_for(item: dict[str, Any]) -> str:
+    return item.get("displayName") or item.get("name") or str(item.get("id"))
+
+
+def _render_filter_builder(brandwatch_service: BrandwatchService, project_id: int) -> list[dict[str, str]]:
     """Selection Builder v1.1+ (voir docs/01-fonctionnelle.md §3) : catégorie,
     tag, langue, domaine, auteur, sentiment — en plus du filtre Reddit déjà
-    systématique. Retourne la liste à stocker dans acquisition_configs.filters."""
+    systématique. Retourne la liste à stocker dans acquisition_configs.filters.
+
+    Catégorie et tag attendent un ID Brandwatch, pas un texte libre (confirmé
+    le 13/10/2026 : un essai en texte libre sur `tag` a échoué avec une
+    erreur 400 côté Brandwatch) — chargés depuis GET /rulecategories et
+    GET /ruletags plutôt que saisis à la main.
+    """
     filters: list[dict[str, str]] = []
     with st.expander("Filtres supplémentaires (optionnel)"):
-        st.caption(
-            "Pour plusieurs valeurs sur un même filtre, essaie une liste séparée "
-            "par des virgules — ce format n'est pas garanti par Brandwatch pour "
-            "tous les filtres, à vérifier au cas par cas."
-        )
+        def _mode_radio(parameter: str):
+            return st.radio(
+                "Mode", options=["include", "exclude"], key=f"filter_mode_{parameter}",
+                format_func=lambda m: "Inclure" if m == "include" else "Exclure", horizontal=True,
+            )
 
-        def _include_exclude_field(label: str, parameter: str, help_text: str | None = None) -> None:
+        st.write("**Catégorie**")
+        if st.button("Charger les catégories de ce Project"):
+            try:
+                st.session_state[f"categories_{project_id}"] = brandwatch_service.list_categories(project_id)
+            except (BrandwatchAPIError, RuntimeError) as exc:
+                st.error(f"Échec de l'appel Brandwatch : {exc}")
+        categories = st.session_state.get(f"categories_{project_id}", [])
+        if categories:
+            category_labels = {c["id"]: _label_for(c) for c in categories}
             cols = st.columns([3, 1])
-            value = cols[0].text_input(label, key=f"filter_value_{parameter}", help=help_text)
+            selected_category = cols[0].selectbox(
+                "Catégorie", options=[None] + list(category_labels),
+                format_func=lambda cid: "—" if cid is None else category_labels[cid], key="filter_select_category",
+            )
+            category_mode = cols[1].radio(
+                "Mode", options=["include", "exclude"], key="filter_mode_category",
+                format_func=lambda m: "Inclure" if m == "include" else "Exclure", horizontal=True,
+            )
+            if selected_category is not None:
+                filters.append({"parameter": "category", "mode": category_mode, "native_value": str(selected_category)})
+        else:
+            st.caption("Clique sur « Charger les catégories » pour choisir dans une liste (pas de nom sans ça).")
+
+        st.divider()
+        st.write("**Tag**")
+        if st.button("Charger les tags de ce Project"):
+            try:
+                st.session_state[f"tags_{project_id}"] = brandwatch_service.list_tags(project_id)
+            except (BrandwatchAPIError, RuntimeError) as exc:
+                st.error(f"Échec de l'appel Brandwatch : {exc}")
+        tags = st.session_state.get(f"tags_{project_id}", [])
+        if tags:
+            tag_labels = {t["id"]: _label_for(t) for t in tags}
+            cols = st.columns([3, 1])
+            selected_tag = cols[0].selectbox(
+                "Tag", options=[None] + list(tag_labels),
+                format_func=lambda tid: "—" if tid is None else tag_labels[tid], key="filter_select_tag",
+            )
+            tag_mode = cols[1].radio(
+                "Mode", options=["include", "exclude"], key="filter_mode_tag",
+                format_func=lambda m: "Inclure" if m == "include" else "Exclure", horizontal=True,
+            )
+            if selected_tag is not None:
+                filters.append({"parameter": "tag", "mode": tag_mode, "native_value": str(selected_tag)})
+        else:
+            st.caption("Clique sur « Charger les tags » pour choisir dans une liste (pas de texte libre).")
+
+        st.divider()
+
+        def _include_exclude_field(label: str, parameter: str) -> None:
+            cols = st.columns([3, 1])
+            value = cols[0].text_input(label, key=f"filter_value_{parameter}")
             mode = cols[1].radio(
                 "Mode", options=["include", "exclude"], key=f"filter_mode_{parameter}",
                 format_func=lambda m: "Inclure" if m == "include" else "Exclure", horizontal=True,
@@ -329,12 +388,6 @@ def _render_filter_builder() -> list[dict[str, str]]:
             if value.strip():
                 filters.append({"parameter": parameter, "mode": mode, "native_value": value.strip()})
 
-        _include_exclude_field(
-            "Catégorie (ID numérique Brandwatch)", "category",
-            help_text="ID propre au Project (ex. 29207363), pas de nom : visible dans Brandwatch ou dans "
-            "un raw_payload déjà acquis (champ categoryDetails).",
-        )
-        _include_exclude_field("Tag", "tag")
         _include_exclude_field("Langue (code ISO, ex. fr)", "language")
         _include_exclude_field("Domaine (ex. reddit.com)", "domain")
         _include_exclude_field("Auteur (pseudo Reddit)", "author")
