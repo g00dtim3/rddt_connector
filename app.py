@@ -43,11 +43,10 @@ def _make_event_logger(placeholder) -> Callable[[str], None]:
 
 SCREENS = [
     "0. Connexions",
-    "1. Sélection",
-    "2. Volume",
-    "3. Acquisition",
-    "4. Export",
-    "5. Dataset Library",
+    "1. Sélection & Volume",
+    "2. Acquisition",
+    "3. Export",
+    "4. Dataset Library",
 ]
 
 
@@ -76,20 +75,18 @@ def main() -> None:
         render_connections(brandwatch_service, brandwatch_setup_error)
         return
 
-    if brandwatch_service is None and screen in {"1. Sélection", "2. Volume", "3. Acquisition"}:
+    if brandwatch_service is None and screen in {"1. Sélection & Volume", "2. Acquisition"}:
         st.error(brandwatch_setup_error)
         st.info("Va à l'écran « 0. Connexions » pour le détail.")
         return
 
-    if screen == "1. Sélection":
-        render_selection(brandwatch_service)
-    elif screen == "2. Volume":
-        render_volume(brandwatch_service)
-    elif screen == "3. Acquisition":
+    if screen == "1. Sélection & Volume":
+        render_selection_and_volume(brandwatch_service)
+    elif screen == "2. Acquisition":
         render_acquisition(brandwatch_service)
-    elif screen == "4. Export":
+    elif screen == "3. Export":
         render_export()
-    elif screen == "5. Dataset Library":
+    elif screen == "4. Dataset Library":
         render_dataset_library(brandwatch_service, brandwatch_setup_error)
 
 
@@ -202,11 +199,11 @@ def _render_check_result(result: dict | None) -> None:
     display(f"{result['message']} (vérifié à {result['checked_at']})")
 
 
-def render_selection(brandwatch_service: BrandwatchService) -> None:
-    st.header("1. Sélection — Project, Query, dates")
+def render_selection_and_volume(brandwatch_service: BrandwatchService) -> None:
+    st.header("1. Sélection & Volume — Project, Query, dates, puis contrôle")
 
     st.subheader("Étude")
-    st.caption("Regroupe les datasets dans la Dataset Library (écran 5) — ex. « Observatoire Peau ».")
+    st.caption("Regroupe les datasets dans la Dataset Library (écran 4) — ex. « Observatoire Peau ».")
     projects_repo = AcquisitionProjectsRepository()
     acquisition_projects = projects_repo.list_all()
     study_labels = {p["id"]: p["name"] for p in acquisition_projects}
@@ -271,7 +268,7 @@ def render_selection(brandwatch_service: BrandwatchService) -> None:
     end_date = col2.date_input("Date de fin")
 
     st.caption(
-        "Rappel : la comparaison de volume (étape 2) exclura automatiquement les "
+        "Rappel : le contrôle de volume ci-dessous exclura automatiquement les "
         "dernières 48h — le contenu Reddit récent met du temps à arriver côté Brandwatch."
     )
 
@@ -304,11 +301,28 @@ def render_selection(brandwatch_service: BrandwatchService) -> None:
         st.session_state["config_filters"] = extra_filters
         st.session_state["acquisition_project_id"] = acquisition_project_id
         st.session_state.pop("dataset_id", None)
-        st.success(f"Sélection enregistrée (config #{config_id}). Passe à l'étape 2. Volume.")
+        st.success(f"Sélection enregistrée (config #{config_id}). Le contrôle de volume est juste en dessous.")
+
+    _render_volume_section(brandwatch_service)
 
 
 def _label_for(item: dict[str, Any]) -> str:
     return item.get("displayName") or item.get("name") or str(item.get("id"))
+
+
+def _flatten_tree(items: list[dict[str, Any]], depth: int = 0) -> list[tuple[int, str]]:
+    """Aplatit un arbre catégorie/sous-catégories (ou tag/sous-tags) en liste
+    plate, avec une indentation visuelle par niveau. Les enfants peuvent être
+    sous différents noms selon la ressource Brandwatch — pas confirmé dans la
+    doc publique, donc on regarde plusieurs clés plausibles plutôt que d'en
+    figer une seule."""
+    flat: list[tuple[int, str]] = []
+    for item in items:
+        flat.append((item["id"], ("    " * depth) + _label_for(item)))
+        children = item.get("children") or item.get("subCategories") or item.get("categories") or []
+        if children:
+            flat.extend(_flatten_tree(children, depth + 1))
+    return flat
 
 
 def _render_filter_builder(brandwatch_service: BrandwatchService, project_id: int) -> list[dict[str, str]]:
@@ -337,7 +351,7 @@ def _render_filter_builder(brandwatch_service: BrandwatchService, project_id: in
                 st.error(f"Échec de l'appel Brandwatch : {exc}")
         categories = st.session_state.get(f"categories_{project_id}", [])
         if categories:
-            category_labels = {c["id"]: _label_for(c) for c in categories}
+            category_labels = dict(_flatten_tree(categories))
             cols = st.columns([3, 1])
             selected_category = cols[0].selectbox(
                 "Catégorie", options=[None] + list(category_labels),
@@ -361,7 +375,7 @@ def _render_filter_builder(brandwatch_service: BrandwatchService, project_id: in
                 st.error(f"Échec de l'appel Brandwatch : {exc}")
         tags = st.session_state.get(f"tags_{project_id}", [])
         if tags:
-            tag_labels = {t["id"]: _label_for(t) for t in tags}
+            tag_labels = dict(_flatten_tree(tags))
             cols = st.columns([3, 1])
             selected_tag = cols[0].selectbox(
                 "Tag", options=[None] + list(tag_labels),
@@ -401,16 +415,17 @@ def _render_filter_builder(brandwatch_service: BrandwatchService, project_id: in
     return filters
 
 
-def render_volume(brandwatch_service: BrandwatchService) -> None:
-    st.header("2. Volume — comparaison UI vs API")
+def _render_volume_section(brandwatch_service: BrandwatchService) -> None:
+    st.divider()
+    st.subheader("Volume — comparaison UI vs API")
     st.caption(
         "Ce contrôle est informatif : un MISMATCH n'empêche pas de passer à "
-        "l'étape 3. Acquisition si tu juges que c'est pertinent quand même."
+        "l'étape 2. Acquisition si tu juges que c'est pertinent quand même."
     )
 
     config_id = st.session_state.get("config_id")
     if not config_id:
-        st.info("Complète d'abord l'étape 1. Sélection.")
+        st.info("Valide une sélection ci-dessus pour activer le contrôle de volume.")
         return
 
     volume_service = VolumeService()
@@ -484,11 +499,11 @@ def render_volume(brandwatch_service: BrandwatchService) -> None:
 
 
 def render_acquisition(brandwatch_service: BrandwatchService) -> None:
-    st.header("3. Acquisition — récupération et stockage")
+    st.header("2. Acquisition — récupération et stockage")
 
     config_id = st.session_state.get("config_id")
     if not config_id:
-        st.info("Complète d'abord l'étape 1. Sélection.")
+        st.info("Complète d'abord l'étape 1. Sélection & Volume.")
         return
 
     if st.button("Lancer / reprendre l'acquisition"):
@@ -533,7 +548,7 @@ def render_acquisition(brandwatch_service: BrandwatchService) -> None:
 
 
 def render_export() -> None:
-    st.header("4. Export — CSV depuis PostgreSQL")
+    st.header("3. Export — CSV depuis PostgreSQL")
     st.caption("Cet écran ne déclenche jamais d'appel à l'API Brandwatch.")
 
     default_dataset_id = st.session_state.get("dataset_id", 0)
@@ -546,15 +561,15 @@ def render_export() -> None:
 
 
 def render_dataset_library(brandwatch_service: BrandwatchService | None, brandwatch_setup_error: str | None) -> None:
-    st.header("5. Dataset Library — tous les datasets acquis")
+    st.header("4. Dataset Library — tous les datasets acquis")
     st.caption(
         "Vue d'ensemble indépendante de la session en cours — regroupée par étude "
-        "(voir l'écran 1. Sélection pour créer/choisir une étude)."
+        "(voir l'écran 1. Sélection & Volume pour créer/choisir une étude)."
     )
 
     datasets = DatasetsRepository().list_with_stats()
     if not datasets:
-        st.info("Aucun dataset pour l'instant. Complète d'abord une Acquisition (étape 3).")
+        st.info("Aucun dataset pour l'instant. Complète d'abord une Acquisition (étape 2).")
         return
 
     for row in datasets:
@@ -605,7 +620,7 @@ def render_dataset_library(brandwatch_service: BrandwatchService | None, brandwa
                         st.session_state["prefill_project_id"] = config["project_id"]
                         st.session_state["prefill_acquisition_project_id"] = row["acquisition_project_id"]
                         st.info(
-                            f"Va à l'écran « 1. Sélection » : Project et Étude sont pré-remplis. "
+                            f"Va à l'écran « 1. Sélection & Volume » : Project et Étude sont pré-remplis. "
                             f"Query à resélectionner : {row['bw_query_name']}."
                         )
 
