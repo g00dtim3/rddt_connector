@@ -6,7 +6,7 @@ directement : elle passe toujours par ce Service (voir docs/02-architecture.md).
 
 from __future__ import annotations
 
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 from connectors.brandwatch_connector import BrandwatchConnector, MentionsPage
 from repositories.bw_projects_repository import BwProjectsRepository
@@ -53,6 +53,11 @@ class BrandwatchService:
     def test_connection(self) -> dict[str, Any]:
         return self._connector.test_connection()
 
+    def set_event_sink(self, callback: Callable[[str], None] | None) -> None:
+        """Mode verbose : branche (ou débranche avec None) un callback appelé à
+        chaque étape d'un appel Brandwatch, pour affichage en direct dans l'UI."""
+        self._connector.set_event_sink(callback)
+
     def list_filters(self) -> dict[str, Any]:
         return self._connector.list_filters()
 
@@ -74,6 +79,13 @@ class BrandwatchService:
         return self._connector.count_mentions(
             project_id, query_id, start_date, end_date, extra_params=self._reddit_only_filter()
         )
+
+    def count_mentions_unfiltered(self, project_id: int, query_id: int, start_date: str, end_date: str) -> int:
+        """Comptage SANS le filtre pageType=reddit — sert uniquement de diagnostic :
+        la Query Brandwatch est en principe déjà construite pour ne contenir que du
+        Reddit (voir CLAUDE.md), donc un écart entre les deux comptages peut révéler
+        un souci de tagging pageType plutôt qu'un vrai problème de volume."""
+        return self._connector.count_mentions(project_id, query_id, start_date, end_date)
 
     def fetch_mentions_pages(
         self,
