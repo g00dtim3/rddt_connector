@@ -272,6 +272,7 @@ class BrandwatchConnector:
         }
 
         cursor = resume_cursor
+        received_so_far = 0
         while True:
             page_params = dict(params)
             if cursor:
@@ -281,13 +282,25 @@ class BrandwatchConnector:
             payload = response.json()
 
             results = payload.get("results", [])
-            cursor = payload.get("nextCursor") or None
+            results_total = payload.get("resultsTotal")
+            next_cursor = payload.get("nextCursor") or None
+            received_so_far += len(results)
 
             yield MentionsPage(
                 results=results,
-                results_total=payload.get("resultsTotal"),
-                next_cursor=cursor,
+                results_total=results_total,
+                next_cursor=next_cursor,
             )
 
-            if not results or not cursor:
+            # Trois conditions d'arrêt indépendantes : le total annoncé par
+            # Brandwatch est atteint, il n'y a plus de curseur, ou le curseur ne
+            # progresse plus (vu en conditions réelles : Brandwatch peut renvoyer
+            # le même nextCursor en boucle au lieu de le vider une fois la fin
+            # atteinte — sans ce filet, ça boucle indéfiniment sur la même page).
+            reached_total = results_total is not None and received_so_far >= results_total
+            no_progress = next_cursor is not None and next_cursor == cursor
+            if not results or not next_cursor or reached_total or no_progress:
+                if no_progress:
+                    self._emit(f"Curseur inchangé après {received_so_far} mentions reçues, arrêt de la pagination")
                 break
+            cursor = next_cursor
