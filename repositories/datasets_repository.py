@@ -6,6 +6,7 @@ from typing import Any
 from sqlalchemy import text
 
 from db.connection import get_connection
+from repositories._chunking import chunked
 
 
 class DatasetsRepository:
@@ -53,22 +54,24 @@ class DatasetMentionsRepository:
     def link_batch(self, dataset_id: int, mention_ids: list[int]) -> None:
         if not mention_ids:
             return
-        # Un seul INSERT multi-lignes plutôt qu'un executemany ligne par ligne
-        # (voir RedditMentionsRepository.upsert_batch pour la même raison).
-        values_clause = ", ".join(f"(:dataset_id, :mention_id_{i})" for i in range(len(mention_ids)))
-        params: dict[str, Any] = {"dataset_id": dataset_id}
-        for i, mention_id in enumerate(mention_ids):
-            params[f"mention_id_{i}"] = mention_id
-
+        # Par blocs (voir RedditMentionsRepository.upsert_batch pour la raison :
+        # un INSERT multi-lignes trop gros dépasse le délai maximum par requête
+        # côté Supabase).
         with get_connection() as conn:
             with conn.begin():
-                conn.execute(
-                    text(
-                        f"""
-                        INSERT INTO dataset_mentions (dataset_id, mention_id)
-                        VALUES {values_clause}
-                        ON CONFLICT DO NOTHING
-                        """
-                    ),
-                    params,
-                )
+                for chunk in chunked(mention_ids):
+                    values_clause = ", ".join(f"(:dataset_id, :mention_id_{i})" for i in range(len(chunk)))
+                    params: dict[str, Any] = {"dataset_id": dataset_id}
+                    for i, mention_id in enumerate(chunk):
+                        params[f"mention_id_{i}"] = mention_id
+
+                    conn.execute(
+                        text(
+                            f"""
+                            INSERT INTO dataset_mentions (dataset_id, mention_id)
+                            VALUES {values_clause}
+                            ON CONFLICT DO NOTHING
+                            """
+                        ),
+                        params,
+                    )
