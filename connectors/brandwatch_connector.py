@@ -80,15 +80,22 @@ class BrandwatchConnector:
     # -- Authentification --------------------------------------------------
 
     def _authenticate(self) -> dict[str, Any]:
+        # Convention standard OAuth2 : les paramètres du token endpoint
+        # partent dans le corps de la requête (application/x-www-form-
+        # urlencoded), pas en query string. Deux essais précédents avec les
+        # paramètres en query string ont échoué avec la même erreur 500
+        # générique de Brandwatch, ce qui suggère que le problème n'est pas
+        # là où ces paramètres sont envoyés (voir docs/06-decisions-et-
+        # risques.md, "Risque : accès API non confirmé").
         response = self._request(
             "POST",
             "/oauth/token",
-            params={
+            data={
                 "username": self._username,
+                "password": self._password,
                 "grant_type": "api-password",
                 "client_id": self._client_id,
             },
-            data={"password": self._password},
             authenticated=False,
         )
         return response.json()
@@ -173,6 +180,17 @@ class BrandwatchConnector:
         response = self._request("GET", f"/projects/{project_id}/queries/summary")
         payload = response.json()
         return payload if isinstance(payload, list) else payload.get("results", payload)
+
+    # -- Découverte des filtres (pour confirmer le filtre Reddit, voir docs/05) --
+
+    def list_filters(self) -> dict[str, Any]:
+        """GET /filters — liste les champs filtrables (ex. pageType, gender, sentiment)."""
+        return self._request("GET", "/filters").json()
+
+    def list_metrics(self) -> dict[str, Any]:
+        """GET /metrics — liste les filtres à valeurs limitées et leurs valeurs acceptées
+        (ex. les valeurs possibles de pageType, dont celle pour Reddit)."""
+        return self._request("GET", "/metrics").json()
 
     # -- Comptage (non confirmé, voir docs/05) ---------------------------------
 
