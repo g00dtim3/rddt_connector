@@ -76,6 +76,12 @@ class BrandwatchService:
     def list_cached_queries(self, project_id: int) -> list[dict[str, Any]]:
         return self._queries_repo.list_by_project(project_id)
 
+    def list_categories(self, project_id: int) -> list[dict[str, Any]]:
+        return self._connector.list_categories(project_id)
+
+    def list_tags(self, project_id: int) -> list[dict[str, Any]]:
+        return self._connector.list_tags(project_id)
+
     def test_connection(self) -> dict[str, Any]:
         return self._connector.test_connection()
 
