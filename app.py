@@ -8,7 +8,7 @@ Services (`services/`).
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from typing import Callable
 
 import streamlit as st
@@ -17,6 +17,7 @@ from config import get_brandwatch_credentials
 from connectors.brandwatch_connector import BrandwatchAPIError, BrandwatchConnector
 from db.connection import test_connection as test_db_connection
 from repositories.acquisition_configs_repository import AcquisitionConfigsRepository
+from repositories.acquisition_projects_repository import AcquisitionProjectsRepository
 from repositories.datasets_repository import DatasetsRepository
 from services.acquisition_service import AcquisitionService
 from services.brandwatch_service import BrandwatchService
@@ -40,7 +41,14 @@ def _make_event_logger(placeholder) -> Callable[[str], None]:
 
     return _log
 
-SCREENS = ["0. Connexions", "1. Sélection", "2. Volume", "3. Acquisition", "4. Export"]
+SCREENS = [
+    "0. Connexions",
+    "1. Sélection",
+    "2. Volume",
+    "3. Acquisition",
+    "4. Export",
+    "5. Dataset Library",
+]
 
 
 @st.cache_resource
@@ -81,6 +89,8 @@ def main() -> None:
         render_acquisition(brandwatch_service)
     elif screen == "4. Export":
         render_export()
+    elif screen == "5. Dataset Library":
+        render_dataset_library(brandwatch_service, brandwatch_setup_error)
 
 
 def render_connections(brandwatch_service: BrandwatchService | None, brandwatch_setup_error: str | None) -> None:
@@ -195,6 +205,31 @@ def _render_check_result(result: dict | None) -> None:
 def render_selection(brandwatch_service: BrandwatchService) -> None:
     st.header("1. Sélection — Project, Query, dates")
 
+    st.subheader("Étude")
+    st.caption("Regroupe les datasets dans la Dataset Library (écran 5) — ex. « Observatoire Peau ».")
+    projects_repo = AcquisitionProjectsRepository()
+    acquisition_projects = projects_repo.list_all()
+    study_labels = {p["id"]: p["name"] for p in acquisition_projects}
+    NEW_STUDY = "— Nouvelle étude —"
+    study_options = [NEW_STUDY] + list(study_labels)
+
+    default_study_index = 0
+    prefill_study_id = st.session_state.pop("prefill_acquisition_project_id", None)
+    if prefill_study_id in study_labels:
+        default_study_index = study_options.index(prefill_study_id)
+
+    study_choice = st.selectbox(
+        "Étude",
+        options=study_options,
+        index=default_study_index,
+        format_func=lambda o: NEW_STUDY if o == NEW_STUDY else study_labels[o],
+    )
+    new_study_name = None
+    if study_choice == NEW_STUDY:
+        new_study_name = st.text_input("Nom de la nouvelle étude")
+
+    st.divider()
+
     if st.button("Charger les Projects depuis Brandwatch"):
         try:
             st.session_state["projects"] = brandwatch_service.sync_projects()
@@ -207,8 +242,14 @@ def render_selection(brandwatch_service: BrandwatchService) -> None:
         return
 
     project_labels = {p["id"]: p["name"] for p in projects}
+    project_ids = list(project_labels)
+    default_project_index = 0
+    prefill_project_id = st.session_state.pop("prefill_project_id", None)
+    if prefill_project_id in project_labels:
+        default_project_index = project_ids.index(prefill_project_id)
+
     project_id = st.selectbox(
-        "Project", options=list(project_labels), format_func=lambda pid: project_labels[pid]
+        "Project", options=project_ids, index=default_project_index, format_func=lambda pid: project_labels[pid]
     )
 
     if st.button("Charger les Queries de ce Project"):
@@ -238,14 +279,27 @@ def render_selection(brandwatch_service: BrandwatchService) -> None:
         if start_date > end_date:
             st.error("La date de début doit précéder la date de fin.")
             return
+        acquisition_project_id = study_choice if study_choice != NEW_STUDY else None
+        if acquisition_project_id is None:
+            if not new_study_name:
+                st.error("Donne un nom à la nouvelle étude, ou choisis-en une existante.")
+                return
+            acquisition_project_id = projects_repo.create(new_study_name)
+
         config_id = AcquisitionConfigsRepository().create(
-            project_id=project_id, query_id=query_id, start_date=start_date, end_date=end_date
+            project_id=project_id,
+            query_id=query_id,
+            start_date=start_date,
+            end_date=end_date,
+            acquisition_project_id=acquisition_project_id,
         )
         st.session_state["config_id"] = config_id
         st.session_state["config_project_id"] = project_id
         st.session_state["config_query_id"] = query_id
         st.session_state["config_start_date"] = str(start_date)
         st.session_state["config_end_date"] = str(end_date)
+        st.session_state["acquisition_project_id"] = acquisition_project_id
+        st.session_state.pop("dataset_id", None)
         st.success(f"Sélection enregistrée (config #{config_id}). Passe à l'étape 2. Volume.")
 
 
@@ -344,6 +398,8 @@ def render_acquisition(brandwatch_service: BrandwatchService) -> None:
             dataset_id = DatasetsRepository().create(
                 start_date=st.session_state["config_start_date"],
                 end_date=st.session_state["config_end_date"],
+                acquisition_project_id=st.session_state.get("acquisition_project_id"),
+                config_id=config_id,
             )
             st.session_state["dataset_id"] = dataset_id
 
@@ -387,6 +443,152 @@ def render_export() -> None:
     if st.button("Générer le CSV"):
         file_name, content = ExportService().generate_csv(int(dataset_id), requested_by=requested_by or None)
         st.download_button("Télécharger le CSV", data=content, file_name=file_name, mime="text/csv")
+
+
+def render_dataset_library(brandwatch_service: BrandwatchService | None, brandwatch_setup_error: str | None) -> None:
+    st.header("5. Dataset Library — tous les datasets acquis")
+    st.caption(
+        "Vue d'ensemble indépendante de la session en cours — regroupée par étude "
+        "(voir l'écran 1. Sélection pour créer/choisir une étude)."
+    )
+
+    datasets = DatasetsRepository().list_with_stats()
+    if not datasets:
+        st.info("Aucun dataset pour l'instant. Complète d'abord une Acquisition (étape 3).")
+        return
+
+    for row in datasets:
+        study_label = row["acquisition_project_name"] or "(sans étude)"
+        query_label = row["bw_query_name"] or "(configuration introuvable)"
+        with st.expander(
+            f"Dataset #{row['dataset_id']} — {study_label} — {query_label} — "
+            f"{row['start_date']} → {row['end_date']} — {row['mention_count']} mention(s) — {row['status']}"
+        ):
+            st.write(f"Project Brandwatch : {row['bw_project_name'] or '—'}")
+            st.write(f"Créé le : {row['created_at']}")
+
+            if row["config_id"] is None:
+                st.warning(
+                    "Pas de configuration associée (dataset créé avant cette fonctionnalité) : "
+                    "Rafraîchir et Étendre ne sont pas disponibles pour ce dataset."
+                )
+                continue
+
+            if brandwatch_service is None:
+                st.error(brandwatch_setup_error)
+                continue
+
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                st.caption("Relance la même sélection, pour récupérer les mentions arrivées depuis.")
+                if st.button("Rafraîchir", key=f"refresh_{row['dataset_id']}"):
+                    _refresh_dataset(brandwatch_service, row)
+
+            with col2:
+                with st.popover("Étendre"):
+                    st.caption("Ajoute une période plus récente au même dataset.")
+                    new_end = st.date_input(
+                        "Nouvelle date de fin",
+                        value=row["end_date"],
+                        min_value=row["end_date"],
+                        key=f"extend_date_{row['dataset_id']}",
+                    )
+                    if st.button("Lancer l'extension", key=f"extend_btn_{row['dataset_id']}"):
+                        _extend_dataset(brandwatch_service, row, new_end)
+
+            with col3:
+                st.caption("Pré-remplit l'écran Sélection pour démarrer un nouveau dataset similaire.")
+                if st.button("Dupliquer la sélection", key=f"duplicate_{row['dataset_id']}"):
+                    config = AcquisitionConfigsRepository().get(row["config_id"])
+                    if config:
+                        st.session_state["prefill_project_id"] = config["project_id"]
+                        st.session_state["prefill_acquisition_project_id"] = row["acquisition_project_id"]
+                        st.info(
+                            f"Va à l'écran « 1. Sélection » : Project et Étude sont pré-remplis. "
+                            f"Query à resélectionner : {row['bw_query_name']}."
+                        )
+
+
+def _refresh_dataset(brandwatch_service: BrandwatchService, row: dict) -> None:
+    config = AcquisitionConfigsRepository().get(row["config_id"])
+    if not config:
+        st.error("Configuration introuvable.")
+        return
+
+    acquisition_service = AcquisitionService(brandwatch_service)
+    progress_placeholder = st.empty()
+    log_sink = _make_event_logger(st.empty())
+    brandwatch_service.set_event_sink(log_sink)
+    try:
+        for progress in acquisition_service.run(
+            config_id=config["id"],
+            project_id=config["project_id"],
+            query_id=config["query_id"],
+            start_date=str(config["start_date"]),
+            end_date=str(config["end_date"]),
+            dataset_id=row["dataset_id"],
+            on_event=log_sink,
+        ):
+            progress_placeholder.write(
+                f"Reçues : {progress['received']} — nouvelles : {progress['inserted']} — "
+                f"déjà en base : {progress['existing']}"
+            )
+    except (BrandwatchAPIError, RuntimeError) as exc:
+        st.error(f"Rafraîchissement interrompu : {exc}")
+        return
+    finally:
+        brandwatch_service.set_event_sink(None)
+
+    DatasetsRepository().update_status(row["dataset_id"], "COMPLETE")
+    st.success("Dataset rafraîchi.")
+
+
+def _extend_dataset(brandwatch_service: BrandwatchService, row: dict, new_end_date: date) -> None:
+    if new_end_date <= row["end_date"]:
+        st.error("La nouvelle date de fin doit être postérieure à la date de fin actuelle.")
+        return
+    config = AcquisitionConfigsRepository().get(row["config_id"])
+    if not config:
+        st.error("Configuration introuvable.")
+        return
+
+    extension_start = row["end_date"] + timedelta(days=1)
+    new_config_id = AcquisitionConfigsRepository().create(
+        project_id=config["project_id"],
+        query_id=config["query_id"],
+        start_date=extension_start,
+        end_date=new_end_date,
+        acquisition_project_id=row["acquisition_project_id"],
+    )
+
+    acquisition_service = AcquisitionService(brandwatch_service)
+    progress_placeholder = st.empty()
+    log_sink = _make_event_logger(st.empty())
+    brandwatch_service.set_event_sink(log_sink)
+    try:
+        for progress in acquisition_service.run(
+            config_id=new_config_id,
+            project_id=config["project_id"],
+            query_id=config["query_id"],
+            start_date=str(extension_start),
+            end_date=str(new_end_date),
+            dataset_id=row["dataset_id"],
+            on_event=log_sink,
+        ):
+            progress_placeholder.write(
+                f"Reçues : {progress['received']} — nouvelles : {progress['inserted']} — "
+                f"déjà en base : {progress['existing']}"
+            )
+    except (BrandwatchAPIError, RuntimeError) as exc:
+        st.error(f"Extension interrompue : {exc}")
+        return
+    finally:
+        brandwatch_service.set_event_sink(None)
+
+    DatasetsRepository().update_end_date(row["dataset_id"], new_end_date)
+    DatasetsRepository().update_status(row["dataset_id"], "COMPLETE")
+    st.success(f"Dataset étendu jusqu'au {new_end_date}.")
 
 
 if __name__ == "__main__":
