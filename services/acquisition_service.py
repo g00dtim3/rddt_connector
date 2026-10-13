@@ -62,6 +62,7 @@ class AcquisitionService:
         end_date: str,
         dataset_id: int,
         expected_volume: int | None = None,
+        extra_filters: list[dict[str, Any]] | None = None,
         on_event: Callable[[str], None] | None = None,
     ) -> Iterator[dict[str, Any]]:
         def emit(message: str) -> None:
@@ -78,7 +79,7 @@ class AcquisitionService:
 
         try:
             pages = self._brandwatch_service.fetch_mentions_pages(
-                project_id, query_id, start_date, end_date, resume_cursor=resume_cursor
+                project_id, query_id, start_date, end_date, extra_filters=extra_filters, resume_cursor=resume_cursor
             )
             for page in pages:
                 emit(f"Page reçue : {len(page.results)} mention(s), écriture en base...")
