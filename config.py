@@ -9,6 +9,7 @@ hors du serveur Streamlit.
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 
 
@@ -38,6 +39,9 @@ class SupabaseCredentials:
     dbname: str
     user: str
     password: str
+    # Schéma PostgreSQL où vivent les tables de l'application.
+    # "public" = ancien projet Reddit ; "reddit" = base principale (lot 2).
+    schema: str = "public"
 
 
 def get_brandwatch_credentials() -> BrandwatchCredentials:
@@ -69,10 +73,16 @@ def get_supabase_credentials() -> SupabaseCredentials:
             "ou les variables d'environnement SUPABASE_HOST / SUPABASE_USER / "
             "SUPABASE_PASSWORD."
         )
+    schema = _get_secret("supabase", "schema", "SUPABASE_SCHEMA", "public") or "public"
+    if not re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", schema):
+        raise RuntimeError(
+            "Paramètre invalide : [supabase].schema (lettres minuscules, chiffres et _ uniquement)."
+        )
     return SupabaseCredentials(
         host=host,
         port=int(_get_secret("supabase", "port", "SUPABASE_PORT", "5432")),
         dbname=_get_secret("supabase", "dbname", "SUPABASE_DBNAME", "postgres"),
         user=user,
         password=password,
+        schema=schema,
     )
