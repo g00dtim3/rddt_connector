@@ -13,6 +13,7 @@ from typing import Any, Callable
 
 import streamlit as st
 
+from auth import exiger_mot_de_passe
 from config import get_brandwatch_credentials
 from connectors.brandwatch_connector import BrandwatchAPIError, BrandwatchConnector
 from db.connection import test_connection as test_db_connection
@@ -27,6 +28,7 @@ from services.volume_service import VolumeService
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 st.set_page_config(page_title="MVP Reddit — Brandwatch → PostgreSQL", layout="wide")
+exiger_mot_de_passe()  # rien ne s'exécute après tant que le mot de passe n'est pas saisi
 
 
 def _make_event_logger(placeholder) -> Callable[[str], None]:

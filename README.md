@@ -24,6 +24,12 @@ Claude Code (ou à un·e développeur·se) pour qu'elle construise l'application
   "legacy" avant leur suppression le 30 septembre 2026. Ce chantier n'est **pas** couvert
   par ce dossier de pilotage (voir `docs/06-decisions-et-risques.md`, section "Risque calendaire").
 
+## Accès
+
+L'application demande un mot de passe avant tout affichage, appel Brandwatch ou accès à la base (`auth.py`).
+Il se règle dans les Secrets Streamlit, **en haut du fichier** : `APP_PASSWORD = "…"` (au moins 16 caractères, jamais dans Git).
+Après 5 essais incorrects, la saisie est bloquée 5 minutes ; sans secret valide, personne ne peut entrer.
+
 ## Comment utiliser ce dossier
 
 1. Dépose ce dossier à la racine du repo GitHub dédié.
