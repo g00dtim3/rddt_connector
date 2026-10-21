@@ -8,6 +8,7 @@
 | 17/09/2026 | Volume estimé pour le périmètre visé : **~1 000 000 mentions**, **4 requêtes Brandwatch**, période 2024-2026. |
 | 17/09/2026 | Périmètre du cœur du MVP (v1) : fetch Projects/Queries existants, filtre Reddit + dates, export CSV. Le reste de la spec détaillée passe en renfort v1.1+. |
 | 17/09/2026 | Choix "dossier de pilotage" (specs + plan) plutôt qu'un squelette de code déjà écrit — la session Claude Code qui développera partira de ces documents. |
+| 21/10/2026 | **Mot de passe obligatoire** (chantier « gardening », lot 0) : l'application ne s'affiche, n'appelle Brandwatch et ne touche à la base qu'après saisie du mot de passe (`auth.py`, secret `APP_PASSWORD`, au moins 16 caractères, 5 essais puis blocage 5 min). Sans protection, une URL Streamlit publique permettait à n'importe qui de consommer le quota API (30 requêtes / 10 min) ou d'exporter les mentions. |
 
 ## Risque calendaire — données Reddit "legacy"
 
