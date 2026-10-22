@@ -54,6 +54,19 @@
   l'add-on payant "Analysis API"). À vérifier en tentant une authentification OAuth réelle
   avant la phase 0 du plan de sprints.
 
+## Décision : charte Consumer Voice (21/10/2026)
+
+- L'interface adopte la charte Consumer Voice, commune aux trois applications Streamlit du
+  pipeline verbatims (référence : `verbatims_run/outils/rr_gabarit.html`). Elle remplace
+  l'emplacement réservé `design-guidelines/` (ancienne charte Compass v1.0, jamais branchée).
+- Thème dans `.streamlit/config.toml`, composants dans `charte/`, guide dans
+  `docs/charte/DESIGN_GUIDE.md`, migration décrite dans `docs/charte/SPRINT_charte.md`.
+- `requirements.txt` passe à `streamlit>=1.66` (thèmes clair / sombre, conteneurs horizontaux).
+- Le `config.toml` du kit manquait dans l'envoi (dossier caché `.streamlit/`) : il a été
+  reconstitué à partir de `charte/jetons.py` ; `tests/test_charte.py` vérifie qu'ils concordent.
+- L'aperçu de mentions sous forme de `carte_verbatim` prévu par le sprint n'est pas ajouté :
+  l'application n'a pas encore d'écran d'aperçu des mentions.
+
 ## Ouvert / à trancher plus tard
 
 - Politique de rétention des données une fois en base (durée de conservation de
