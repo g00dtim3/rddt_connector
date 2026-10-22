@@ -67,8 +67,10 @@ Voir `docs/01-spec-fonctionnelle.md` pour la séparation exacte.
 
 ## Design
 
-Les guidelines de design de l'organisation seront déposées dans `design-guidelines/`.
-Si ce dossier contient des fichiers au moment où tu lis ceci, applique leurs règles
-(couleurs, typographie, composants) à l'interface Streamlit. S'il est vide, utilise une
-interface Streamlit sobre par défaut et signale l'absence de charte plutôt que d'inventer
-une identité visuelle.
+L'interface suit la **charte Consumer Voice** (décision du 21/10/2026, commune à `api-explorer`,
+`mvp_verbatim_import` et `rddt_connector`). Avant toute modification d'interface, lire
+`docs/charte/DESIGN_GUIDE.md` (principes, composants, rédaction, accessibilité).
+- Thème : `.streamlit/config.toml` ; composants : `charte/` ; tests : `tests/test_charte.py`.
+- Ne jamais modifier le kit (`charte/`, `config.toml`) dans cette seule application : il se
+  modifie dans le kit commun puis se recopie dans les trois dépôts.
+- `design-guidelines/` ne contient plus qu'un renvoi vers `docs/charte/DESIGN_GUIDE.md`.
